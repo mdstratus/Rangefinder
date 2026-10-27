@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Range">
+<meta name="theme-color" content="#0b0f0c">
+<title>Field Range Finder</title>
+<style>
+:root{
+  --bg:#0b0f0c; --panel:rgba(11,15,12,.82); --fg:#eef2ea; --muted:#9fae9f;
+  --accent:#ffb020; --ok:#7ddc7a; --bad:#ff6b5b; --line:rgba(255,255,255,.16);
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.35 var(--font);overflow:hidden;overscroll-behavior:none}
+video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+button,select,input{font:inherit;color:inherit}
+button{background:rgba(255,255,255,.1);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-height:44px}
+button:active{background:rgba(255,255,255,.2)}
+button.primary{background:var(--accent);color:#1a1200;border-color:var(--accent);font-weight:700}
+button.on{background:var(--accent);color:#1a1200;border-color:var(--accent)}
+select,input{background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:44px;width:100%}
+label{display:block;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+#start{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;gap:14px;
+  padding-block:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-bottom));
+  padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right));background:var(--bg)}
+#start h1{margin:0;font-size:28px;letter-spacing:-.01em}
+#start p{margin:0;color:var(--muted);max-width:42ch}
+#start .warn{color:var(--fg);border-left:3px solid var(--accent);padding-left:12px}
+#err{color:var(--bad);min-height:1.35em}
+
+#hud{position:fixed;inset:0;display:none;pointer-events:none}
+#hud.show{display:block}
+.top,.bottom{position:absolute;left:0;right:0;z-index:5;pointer-events:auto;
+  padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+.top{top:0;padding-top:max(10px,env(safe-area-inset-top));display:flex;gap:8px;flex-wrap:wrap}
+.top .seg{display:flex;flex:1 1 220px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+.top .seg button{flex:1;border:0;border-radius:0;background:transparent}
+.top .seg button.on{background:var(--accent)}
+.top .unit{flex:0 0 auto;background:var(--panel)}
+.bottom{bottom:0;padding-bottom:max(12px,env(safe-area-inset-bottom))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.readout{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+#val{font:700 54px/1 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+#val.held{color:var(--accent)}
+#sub{color:var(--muted);font-size:13px;min-height:1.35em;margin-top:4px}
+#sub.bad{color:var(--bad)}
+.row{display:flex;gap:8px;margin-top:10px}
+.row>*{flex:1;min-width:0}
+.row .fixed{flex:0 0 auto}
+.fine{margin-top:8px;color:var(--muted);font-size:11.5px}
+#calpanel{margin-top:10px}
+
+.cross{position:absolute;left:50%;top:50%;width:0;height:0;z-index:2;pointer-events:none}
+.cross i{position:absolute;background:#fff;box-shadow:0 0 3px #000}
+.cross .h{left:-22px;top:-1px;width:44px;height:2px}
+.cross .v{left:-1px;top:-22px;width:2px;height:44px}
+.cross .d{left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.cross.gap .h{background:linear-gradient(90deg,#fff 0 35%,transparent 35% 65%,#fff 65%)}
+
+#bracket{position:absolute;inset:0;z-index:1;touch-action:none;pointer-events:none}
+#bracket.live{pointer-events:auto}
+.bl{position:absolute;left:0;right:0;height:0;border-top:2px solid var(--accent);filter:drop-shadow(0 0 2px #000)}
+.bl span{position:absolute;right:max(12px,env(safe-area-inset-right));top:-12px;background:var(--accent);color:#1a1200;font:700 11px/1 var(--mono);padding:6px 8px;border-radius:6px}
+.fill{position:absolute;left:0;right:0;background:rgba(255,176,32,.10)}
+.hide{display:none!important}
+@media (prefers-reduced-motion:no-preference){button{transition:background .12s}}
+</style>
+</head>
+<body>
+
+<video id="cam" playsinline muted autoplay></video>
+
+<section id="start">
+  <h1>Field Range Finder</h1>
+  <p>Estimates distance with the phone camera and tilt sensor. Good for golf and range practice. Not a laser.</p>
+  <p class="warn">Accuracy depends on how well you bracket the target and on the size you enter. For hunting, use a laser rangefinder for any shot decision.</p>
+  <button id="go" class="primary">Start camera</button>
+  <div id="err" role="alert"></div>
+</section>
+
+<div id="hud">
+  <div id="bracket"><div class="fill" id="fill"></div>
+    <div class="bl" id="l1"><span>TOP</span></div>
+    <div class="bl" id="l2"><span>BASE</span></div>
+  </div>
+  <div class="cross" id="cross"><i class="h"></i><i class="v"></i><i class="d"></i></div>
+
+  <div class="top">
+    <div class="seg" role="group" aria-label="Method">
+      <button id="mSize" class="on">Known size</button>
+      <button id="mAngle">Ground angle</button>
+    </div>
+    <button id="unit" class="unit" aria-label="Toggle units">yd</button>
+  </div>
+
+  <div class="bottom">
+    <div class="card">
+      <div class="readout"><div id="val">--</div></div>
+      <div id="sub"></div>
+
+      <div id="pSize">
+        <div class="row">
+          <div><label for="preset">Target</label>
+            <select id="preset">
+              <option value="84">Golf flagstick (7 ft)</option>
+              <option value="29.5">IPSC target, tall (about 30 in)</option>
+              <option value="18">Deer body depth (about 18 in, varies)</option>
+              <option value="custom">Custom size</option>
+            </select></div>
+          <div id="customWrap" class="hide"><label for="custom">Height (in)</label>
+            <input id="custom" type="number" inputmode="decimal" min="1" step="0.5" value="10"></div>
+        </div>
+        <div class="row">
+          <button id="hold1">Hold</button>
+          <button id="calBtn">Calibrate</button>
+        </div>
+        <div id="calpanel" class="hide">
+          <div class="row">
+            <div><label for="calDist">Known distance (yd)</label>
+              <input id="calDist" type="number" inputmode="decimal" min="5" step="1" value="50"></div>
+            <button id="calSet" class="primary fixed" style="align-self:flex-end">Set</button>
+          </div>
+          <div class="fine">Bracket a target of the selected size from a distance you know, then tap Set. Do this once per phone. Don't zoom.</div>
+        </div>
+      </div>
+
+      <div id="pAngle" class="hide">
+        <div class="row">
+          <div><label for="hgt">Phone height (in)</label>
+            <input id="hgt" type="number" inputmode="decimal" min="12" max="120" step="1" value="60"></div>
+          <div><label>Tilt below level</label><div id="tilt" style="min-height:44px;display:flex;align-items:center;font:600 18px var(--mono)">--</div></div>
+        </div>
+        <div class="row">
+          <button id="hold2">Hold</button>
+          <button id="zero">Zero tilt</button>
+        </div>
+        <div class="fine">Hold the phone upright. Put the crosshair on the target's base on flat ground. To zero, hold it upright against a vertical wall and tap Zero tilt.</div>
+      </div>
+      <div class="fine">Estimate only. Confirm with a laser rangefinder before any hunting shot.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){return document.getElementById(id)};
+  var S = {mode:"size", unit:"yd", held:null, sizeIn:84, F:0.866, calibrated:false,
+           heightIn:60, zero:0, beta:null, gamma:null, y1:0.36, y2:0.64, motion:false};
+
+  // ---- persistence (best effort) ----
+  function load(){
+    try{
+      var s = JSON.parse(localStorage.getItem("rf1")||"{}");
+      if(typeof s.F==="number" && s.F>0.1 && s.F<5){S.F=s.F; S.calibrated=!!s.calibrated;}
+      if(typeof s.heightIn==="number") S.heightIn=s.heightIn;
+      if(typeof s.zero==="number") S.zero=s.zero;
+      if(s.unit==="m"||s.unit==="yd") S.unit=s.unit;
+    }catch(e){}
+  }
+  function save(){
+    try{localStorage.setItem("rf1",JSON.stringify({F:S.F,calibrated:S.calibrated,heightIn:S.heightIn,zero:S.zero,unit:S.unit}))}catch(e){}
+  }
+  load();
+  $("hgt").value = S.heightIn;
+  $("unit").textContent = S.unit;
+
+  // ---- start ----
+  $("go").onclick = async function(){
+    var err = $("err"); err.textContent = "";
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      err.textContent = "Camera is blocked. Open this page from its https:// address in Safari, not from a saved file.";
+      return;
+    }
+    try{
+      var stream = await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080}}, audio:false});
+      $("cam").srcObject = stream;
+      await $("cam").play();
+    }catch(e){
+      err.textContent = "Camera error: " + (e && e.name ? e.name : "unknown") + (e && e.message ? " - " + e.message : "") + ". Check aA > Website Settings > Camera, then reload.";
+      return;
+    }
+    window.addEventListener("deviceorientation", onOri);
+    try{ if(navigator.wakeLock) navigator.wakeLock.request("screen").catch(function(){}); }catch(e){}
+    $("start").classList.add("hide");
+    $("hud").classList.add("show");
+    setMode("size");
+    place();
+    requestAnimationFrame(tick);
+  };
+
+  function requestMotion(){
+    if(S.motion) return;
+    try{
+      if(typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function"){
+        DeviceOrientationEvent.requestPermission().then(function(r){
+          S.motion = (r === "granted");
+          if(S.motion) window.addEventListener("deviceorientation", onOri);
+        }).catch(function(){ S.motion = false; });
+      }else{
+        S.motion = ("DeviceOrientationEvent" in window);
+      }
+    }catch(e){ S.motion = false; }
+  }
+
+  function onOri(ev){
+    if(ev.beta == null) return;
+    S.beta = (S.beta == null) ? ev.beta : S.beta*0.8 + ev.beta*0.2;
+    S.gamma = ev.gamma;
+  }
+
+  // ---- mode / units / ui ----
+  function setMode(m){
+    S.mode = m; S.held = null;
+    $("mSize").classList.toggle("on", m==="size");
+    $("mAngle").classList.toggle("on", m==="angle");
+    $("pSize").classList.toggle("hide", m!=="size");
+    $("pAngle").classList.toggle("hide", m!=="angle");
+    $("bracket").classList.toggle("live", m==="size");
+    $("bracket").classList.toggle("hide", m!=="size");
+    $("cross").classList.toggle("hide", m==="size");
+    $("hold1").textContent = $("hold2").textContent = "Hold";
+  }
+  $("mSize").onclick = function(){setMode("size")};
+  $("mAngle").onclick = function(){requestMotion(); setMode("angle")};
+  $("unit").onclick = function(){S.unit = S.unit==="yd" ? "m" : "yd"; $("unit").textContent=S.unit; save();};
+
+  $("preset").onchange = function(){
+    var v = this.value;
+    $("customWrap").classList.toggle("hide", v!=="custom");
+    S.sizeIn = (v==="custom") ? (parseFloat($("custom").value)||10) : parseFloat(v);
+    S.held = null;
+  };
+  $("custom").oninput = function(){ var n=parseFloat(this.value); if(n>0) S.sizeIn=n; };
+  $("hgt").oninput = function(){ var n=parseFloat(this.value); if(n>0){S.heightIn=n; save();} };
+
+  function toggleHold(btn){
+    if(S.held!=null){ S.held=null; btn.textContent="Hold"; return; }
+    var d = compute().din;
+    if(d==null) return;
+    S.held = d; btn.textContent = "Release";
+    try{navigator.vibrate && navigator.vibrate(15)}catch(e){}
+  }
+  $("hold1").onclick = function(){toggleHold(this)};
+  $("hold2").onclick = function(){toggleHold(this)};
+
+  $("zero").onclick = function(){
+    if(S.beta==null){return;}
+    if(S.zero!==0 && this.dataset.armed!=="1"){ /* second tap resets */ }
+    S.zero = 90 - S.beta; save();
+  };
+  $("zero").oncontextmenu = function(e){e.preventDefault(); S.zero=0; save();};
+
+  $("calBtn").onclick = function(){ $("calpanel").classList.toggle("hide"); };
+  $("calSet").onclick = function(){
+    var yd = parseFloat($("calDist").value);
+    var span = Math.abs(S.y2 - S.y1);
+    if(!(yd>0) || span<0.02){ return; }
+    S.F = span * (yd*36) / S.sizeIn;   // span = size*F/dist
+    S.calibrated = true; save();
+    $("calpanel").classList.add("hide");
+  };
+
+  // ---- bracket lines ----
+  var drag = null;
+  function place(){
+    var h = window.innerHeight;
+    var a = Math.min(S.y1,S.y2), b = Math.max(S.y1,S.y2);
+    $("l1").style.top = (S.y1*h)+"px";
+    $("l2").style.top = (S.y2*h)+"px";
+    $("fill").style.top = (a*h)+"px";
+    $("fill").style.height = ((b-a)*h)+"px";
+  }
+  var br = $("bracket");
+  br.addEventListener("pointerdown", function(e){
+    var h = window.innerHeight, y = e.clientY;
+    var d1 = Math.abs(y - S.y1*h), d2 = Math.abs(y - S.y2*h);
+    drag = (d1 <= d2) ? "y1" : "y2";
+    br.setPointerCapture(e.pointerId);
+    S[drag] = Math.max(0.02, Math.min(0.98, y/h));
+    S.held = null; place();
+  });
+  br.addEventListener("pointermove", function(e){
+    if(!drag) return;
+    S[drag] = Math.max(0.02, Math.min(0.98, e.clientY/window.innerHeight));
+    place();
+  });
+  function end(){drag=null}
+  br.addEventListener("pointerup", end);
+  br.addEventListener("pointercancel", end);
+  window.addEventListener("resize", place);
+
+  // ---- math ----
+  function compute(){
+    if(S.mode==="size"){
+      var span = Math.abs(S.y2 - S.y1);
+      if(span < 0.015) return {din:null, msg:"Spread the lines apart to cover the target."};
+      var din = S.sizeIn * S.F / span;
+      var msg = S.calibrated ? "Bracket the full height of the target" : "Not calibrated yet. Tap Calibrate for better accuracy.";
+      return {din:din, msg:msg, warn:!S.calibrated};
+    }
+    if(!S.motion || S.beta==null) return {din:null, msg:"Waiting for tilt sensor. If asked, tap Allow, then tap Ground angle again.", warn:true};
+    var depr = 90 - S.beta - S.zero;
+    $("tilt").textContent = depr.toFixed(1) + "°";
+    if(Math.abs(S.gamma||0) > 25) return {din:null, msg:"Hold the phone upright, not rolled.", warn:true};
+    if(depr < 0.3) return {din:null, msg:"Aim lower, at the target's base.", warn:true};
+    if(depr > 75) return {din:null, msg:"Too steep. Aim farther out.", warn:true};
+    var d = S.heightIn / Math.tan(depr*Math.PI/180);
+    var yd = d/36;
+    var msg = "Flat ground only.";
+    var warn = false;
+    if(yd > 150){ msg = "Beyond about 150 yd a tiny tilt error moves this a lot."; warn = true; }
+    return {din:d, msg:msg, warn:warn};
+  }
+  function fmt(din){
+    if(S.unit==="yd") return Math.round(din/36) + "";
+    return Math.round(din*0.0254) + "";
+  }
+
+  var lastText = "";
+  function tick(){
+    var r = compute();
+    var val = $("val"), sub = $("sub");
+    var din = (S.held!=null) ? S.held : r.din;
+    var t = (din==null) ? "--" : fmt(din) + " " + S.unit;
+    if(t !== lastText){ val.textContent = t; lastText = t; }
+    val.classList.toggle("held", S.held!=null);
+    sub.textContent = (S.held!=null) ? "HELD" : (r.msg||"");
+    sub.classList.toggle("bad", !!r.warn && S.held==null);
+    requestAnimationFrame(tick);
+  }
+})();
+</script>
+</body>
+</html>
